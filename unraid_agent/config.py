@@ -90,6 +90,7 @@ class Config:
 
     # LLM diagnosis via OpenCode Go
     opencode_api_key: str = ""
+    server_notes: str = ""  # free text about this server, added to the diagnosis prompt
     opencode_model: str = "glm-5.2"
     opencode_base_url: str = "https://opencode.ai/inference/go/openai/v1"
     escalate_cooldown_hours: int = 24
@@ -139,6 +140,7 @@ class Config:
             check_vms=_bool("CHECK_VMS", True),
             vm_ignore=_list("VM_IGNORE"),
             opencode_api_key=os.environ.get("OPENCODE_API_KEY", "").strip(),
+            server_notes=os.environ.get("SERVER_NOTES", "").strip(),
             opencode_model=os.environ.get("OPENCODE_MODEL", "").strip() or "glm-5.2",
             opencode_base_url=os.environ.get("OPENCODE_BASE_URL", "").strip() or "https://opencode.ai/inference/go/openai/v1",
             escalate_cooldown_hours=_int("ESCALATE_COOLDOWN_HOURS", 24),
