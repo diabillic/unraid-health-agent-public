@@ -7,6 +7,7 @@ import time
 
 import apprise
 
+from .bus import push_alert
 from .findings import Finding
 from .state import State
 
@@ -17,9 +18,10 @@ FOREVER_HOURS = 24 * 365 * 10
 
 
 class Notifier:
-    def __init__(self, urls: list[str], renotify_hours: int, state: State):
+    def __init__(self, urls: list[str], renotify_hours: int, state: State, bot_url: str = "", bot_token: str = ""):
         self.renotify_hours = renotify_hours
         self.state = state
+        self.bot_url, self.bot_token = bot_url, bot_token  # Discord bot first, Apprise as fallback
         self.apobj = apprise.Apprise()
         for url in urls:
             if not self.apobj.add(url):
@@ -61,5 +63,7 @@ class Notifier:
         body = "\n".join(lines)
 
         log.info("%s\n%s", title, body)
+        if self.bot_url and push_alert(self.bot_url, self.bot_token, "unraid", title, body, due, diagnosis):
+            return
         if len(self.apobj) and not self.apobj.notify(title=title, body=body):
             log.warning("One or more notification targets failed")

@@ -62,6 +62,11 @@ jobs:
           VM_IGNORE: ${{ vars.VM_IGNORE }}
           OPENCODE_MODEL: ${{ vars.OPENCODE_MODEL }}
           SERVER_NOTES: ${{ vars.SERVER_NOTES }}
+          AGENT_BUS_PORT: ${{ vars.AGENT_BUS_PORT }}
+          BOT_ALERT_URL: ${{ vars.BOT_ALERT_URL }}
+          BUS_ACTION_TOOLS: ${{ vars.BUS_ACTION_TOOLS }}
+          AGENT_BUS_TOKEN: ${{ secrets.AGENT_BUS_TOKEN }}
+          APPROVAL_NOTIFY_URLS: ${{ secrets.APPROVAL_NOTIFY_URLS }}
           UNRAIDCLAW_API_KEY: ${{ secrets.UNRAIDCLAW_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           NOTIFY_URLS: ${{ secrets.NOTIFY_URLS }}
@@ -76,7 +81,7 @@ jobs:
                    DISK_TEMP_CRIT DISK_USAGE_WARN SMART_UNKNOWN_CYCLES PARITY_MAX_AGE_DAYS MEM_WARN_PERCENT LOAD_WARN \
                    NOTIFICATION_LEVELS DOCKER_IGNORE DOCKER_RW_WARN_GB DOCKER_LOG_WARN_GB DOCKER_RW_GROWTH_GB \
                    DOCKER_UPDATES TEMP_SENSORS \
-                   CHECK_VMS VM_IGNORE OPENCODE_MODEL SERVER_NOTES \
+                   CHECK_VMS VM_IGNORE OPENCODE_MODEL SERVER_NOTES AGENT_BUS_PORT BOT_ALERT_URL BUS_ACTION_TOOLS AGENT_BUS_TOKEN \
                    UNRAIDCLAW_API_KEY OPENCODE_API_KEY NOTIFY_URLS; do
             if [ -n "${!v}" ]; then printf '%s=%s\n' "$v" "${!v}" >> stage/agent.env; fi
           done

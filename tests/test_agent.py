@@ -550,3 +550,36 @@ def test_mcp_client_unauthorized():
     c.http.post = lambda *a, **k: FakeResp(status=401, body={"ok": False})
     with pytest.raises(MCPError, match="unauthorized"):
         c.call_tool("unraid_health_check")
+
+
+# --- agent bus (MCP endpoint for the Discord bot) ---
+
+def test_bus_tools_gate_unraidclaw_actions(tmp_path, monkeypatch):
+    from unraid_agent import __main__ as main_mod
+    from unraid_agent.bus import Runtime
+    listed = [
+        {"name": "unraid_docker_list", "annotations": {"readOnlyHint": True}, "inputSchema": {"type": "object"}},
+        {"name": "unraid_vm_list", "annotations": {"readOnlyHint": True}, "inputSchema": {"type": "object"}},
+        {"name": "unraid_docker_restart", "annotations": {"destructiveHint": True}, "inputSchema": {"type": "object"}},
+        {"name": "unraid_docker_remove", "annotations": {"destructiveHint": True}, "inputSchema": {"type": "object"}},
+        {"name": "unraid_array_stop", "annotations": {"destructiveHint": True}, "inputSchema": {"type": "object"}},
+    ]
+    calls = []
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        def list_tools(self): return listed
+        def call_tool(self, name, args): calls.append((name, args)); return {"ok": name}
+
+    monkeypatch.setattr(main_mod, "MCPClient", FakeClient)
+    c = cfg(tmp_path, check_vms=False)
+    tools = {t.name: t for t in main_mod.bus_tools(c, Runtime("unraid"))}
+    assert set(tools) == {"agent_status", "agent_last_diagnosis", "agent_run_check",
+                          "unraid_docker_list", "unraid_docker_restart"}  # no VM, remove or array tools
+    assert tools["unraid_docker_list"].read_only and not tools["unraid_docker_restart"].read_only
+    assert tools["agent_run_check"].read_only  # notify-only agent: a check changes nothing
+    assert tools["unraid_docker_restart"].fn(id="plex") == {"ok": "unraid_docker_restart"}
+    assert calls == [("unraid_docker_restart", {"id": "plex"})]
+    # With the Unraid API configured, the agent_* tools are on the bus too.
+    c.unraid_graphql_url, c.unraid_api_key = "http://unraid/graphql", "k"
+    assert {"agent_disk_health", "agent_temperatures", "agent_container_sizes"} <= {t.name for t in main_mod.bus_tools(c, Runtime("unraid"))}
