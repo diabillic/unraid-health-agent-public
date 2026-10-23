@@ -103,6 +103,7 @@ class Config:
     bus_action_tools: list[str] = field(default_factory=lambda: ["unraid_docker_start", "unraid_docker_restart"])
     # Where one-time approval codes for bus actions go: a channel the MCP client can't read
     approval_urls: list[str] = field(default_factory=list)
+    approval_mode: str = "code"  # "code" (agent-enforced) or "client" (assistant asks; audited)
 
     @property
     def escalation_enabled(self) -> bool:
@@ -158,4 +159,5 @@ class Config:
             bot_alert_url=os.environ.get("BOT_ALERT_URL", "").strip(),
             bus_action_tools=_list("BUS_ACTION_TOOLS", "unraid_docker_start,unraid_docker_restart"),
             approval_urls=_list("APPROVAL_NOTIFY_URLS"),
+            approval_mode=os.environ.get("APPROVAL_MODE", "").strip().lower() or "code",
         )

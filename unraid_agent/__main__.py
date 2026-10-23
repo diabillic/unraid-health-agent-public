@@ -90,13 +90,13 @@ def main() -> None:
     state = State(cfg.state_path)
     notifier = Notifier(cfg.notify_urls, cfg.renotify_hours, state, cfg.bot_alert_url, cfg.bus_token)
     runtime = Runtime("unraid", revision=_revision())
-    approvals = Approvals("unraid", cfg.approval_urls)
+    approvals = Approvals("unraid", cfg.approval_urls, mode=cfg.approval_mode)
     if cfg.bus_token and cfg.bus_port and not args.once:
         serve_mcp("0.0.0.0", cfg.bus_port, cfg.bus_token, bus_tools(cfg, runtime), "unraid-agent", approvals)
     log.info(
-        "Starting: unraidclaw=%s pinned=%s pools=%s escalation=%s model=%s bus=%s approvals=%s bot_alerts=%s interval=%smin",
+        "Starting: unraidclaw=%s pinned=%s pools=%s escalation=%s model=%s bus=%s approvals=%s/%s bot_alerts=%s interval=%smin",
         cfg.mcp_url, bool(cfg.mcp_fingerprint), cfg.pools_enabled, cfg.escalation_enabled, cfg.opencode_model,
-        bool(cfg.bus_token), approvals.enabled, bool(cfg.bot_alert_url), cfg.interval_minutes,
+        bool(cfg.bus_token), approvals.enabled, approvals.mode, bool(cfg.bot_alert_url), cfg.interval_minutes,
     )
 
     while True:
