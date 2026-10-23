@@ -10,7 +10,7 @@ from typing import Any
 
 
 class State:
-    SECTIONS = ("notified", "escalated", "seen", "last_running", "smart", "docker_sizes")
+    SECTIONS = ("notified", "escalated", "seen", "last_running", "smart", "docker_sizes", "temp_hot")
 
     def __init__(self, path: str):
         self.path = path
