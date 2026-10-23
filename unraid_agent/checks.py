@@ -317,7 +317,9 @@ class Checks:
             return [Finding("temp:unavailable", f"Couldn't read temperature sensors from Unraid's API: {exc}")]
         wanted = re.compile(self.cfg.temp_sensors, re.I)
         units = {"CELSIUS": "°C", "FAHRENHEIT": "°F", "KELVIN": "K", "RANKINE": "°R"}
-        out = []
+        hot = self.state["temp_hot"]  # sensor -> when it first read over its limit, for the spike grace period
+        now = self.now.timestamp()
+        out, still_hot = [], set()
         for s in sensors:
             name = str(s.get("name") or "")
             if s.get("type") in ("DISK", "NVME") or not wanted.search(name):
@@ -330,11 +332,24 @@ class Checks:
             status = str(cur.get("status") or "").upper()
             limit = lambda v: f"{v:g}{unit}" if v else "Unraid's limit"  # noqa: E731
             if (crit and value >= crit) or status == "CRITICAL":
-                out.append(Finding(f"temp:{name}", f"{name} is at {value:.0f}{unit} (critical ≥ {limit(crit)}).", "error",
-                                   escalate=True, details={"sensor": s}))
+                f = Finding(f"temp:{name}", f"{name} is at {value:.0f}{unit} (critical ≥ {limit(crit)}).", "error",
+                            escalate=True, details={"sensor": s})
             elif (warn and value >= warn) or status == "WARNING":
-                out.append(Finding(f"temp:{name}", f"{name} is at {value:.0f}{unit} (warn ≥ {limit(warn)}).",
-                                   escalate=True, details={"sensor": s}))
+                f = Finding(f"temp:{name}", f"{name} is at {value:.0f}{unit} (warn ≥ {limit(warn)}).",
+                            escalate=True, details={"sensor": s})
+            else:
+                continue
+            still_hot.add(name)
+            since = hot.setdefault(name, now)
+            minutes = (now - since) / 60
+            if minutes < self.cfg.temp_grace_minutes:
+                log.info("%s spike (%.0f%s), waiting %d min before alerting", name, value, unit, self.cfg.temp_grace_minutes)
+                continue
+            if minutes >= 1:
+                f.summary += f" Hot for {minutes:.0f} min."
+            out.append(f)
+        for name in [n for n in hot if n not in still_hot]:
+            del hot[name]  # cooled down (or gone): the next spike starts a new grace period
         return out
 
     def docker_sizes(self) -> list[Finding]:

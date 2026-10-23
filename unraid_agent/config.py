@@ -85,6 +85,7 @@ class Config:
     docker_rw_growth_gb: float = 2.0  # writable-layer growth within 24 h
     docker_updates: bool = True  # one-time notice per container with an image update
     temp_sensors: str = DEFAULT_TEMP_SENSORS  # regex over sensor names; empty disables
+    temp_grace_minutes: int = 10  # a CPU/board sensor must stay hot this long before alerting (load spikes)
     check_vms: bool = True
     vm_ignore: list[str] = field(default_factory=list)
 
@@ -147,6 +148,7 @@ class Config:
             docker_rw_growth_gb=_float("DOCKER_RW_GROWTH_GB", 2.0),
             docker_updates=_bool("DOCKER_UPDATES", True),
             temp_sensors=os.environ.get("TEMP_SENSORS", DEFAULT_TEMP_SENSORS).strip(),
+            temp_grace_minutes=max(0, _int("TEMP_GRACE_MINUTES", 10)),
             check_vms=_bool("CHECK_VMS", True),
             vm_ignore=_list("VM_IGNORE"),
             opencode_api_key=os.environ.get("OPENCODE_API_KEY", "").strip(),

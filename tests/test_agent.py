@@ -218,6 +218,7 @@ REAL_SENSORS = [
 
 def test_temperatures_trust_only_cpu_and_board_sensors(tmp_path):
     c = cfg(tmp_path)
+    c.temp_grace_minutes = 0  # sensor selection only; the spike grace period has its own test
 
     def check(sensors):
         g = FakeGQL([{"name": "x", "status": "DISK_OK"}], sensors=sensors)
@@ -237,6 +238,25 @@ def test_temperatures_trust_only_cpu_and_board_sensors(tmp_path):
     assert pkg.severity == "error" and pkg.escalate and "Unraid's limit" in pkg.summary
     c.temp_sensors = ""
     assert check(hot) == {}  # empty TEMP_SENSORS disables the check
+
+
+def test_cpu_temp_spike_waits_out_the_grace_period(tmp_path):
+    c = cfg(tmp_path)  # default TEMP_GRACE_MINUTES=10
+    state = State(c.state_path)
+    tctl = "k10temp-pci-00c3 Tctl"
+
+    def check(value, minutes):
+        g = FakeGQL([{"name": "x", "status": "DISK_OK"}], sensors=[_sensor(tctl, value)])
+        now = NOW + timedelta(minutes=minutes)
+        return {f.key: f for f in Checks(FakeMCP(unraid_disk_list=[]), state, c, now, g).run()}
+
+    assert check(85, 0) == {}  # a spike from a job: no alert yet
+    assert check(60, 5) == {}  # cooled down within the grace period: never alerts
+    assert check(85, 10) == {}  # a new spike starts a new grace period
+    assert check(86, 15) == {}
+    f = check(91, 20)[f"temp:{tctl}"]  # still hot 10 min later: alert
+    assert f.severity == "error" and "Hot for 10 min" in f.summary
+    assert check(60, 25) == {} and state["temp_hot"] == {}
 
 
 def test_docker_update_notices(tmp_path):
