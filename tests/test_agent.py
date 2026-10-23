@@ -583,3 +583,20 @@ def test_bus_tools_gate_unraidclaw_actions(tmp_path, monkeypatch):
     # With the Unraid API configured, the agent_* tools are on the bus too.
     c.unraid_graphql_url, c.unraid_api_key = "http://unraid/graphql", "k"
     assert {"agent_disk_health", "agent_temperatures", "agent_container_sizes"} <= {t.name for t in main_mod.bus_tools(c, Runtime("unraid"))}
+
+
+def test_deploy_renders_every_setting_it_is_given():
+    """Every variable/secret passed to the 'Render agent.env' step must be written to agent.env.
+
+    Guards against adding a setting to the step's env block but not to the loop, which silently
+    drops it from the deployed config.
+    """
+    import pathlib
+    import re
+    wf = (pathlib.Path(__file__).resolve().parent.parent / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    step = wf.split("- name: Render agent.env", 1)[1].split("- name:", 1)[0]
+    env_block, run_block = step.split("run: |", 1)
+    given = set(re.findall(r"^\s+([A-Z_]+): \$\{\{ (?:vars|secrets)\.", env_block, re.M))
+    loop = re.search(r"for v in (.*?); do", run_block, re.S).group(1)
+    written = set(re.findall(r"[A-Z_]+", loop))
+    assert given - written == set(), f"passed to the step but never written to agent.env: {sorted(given - written)}"
