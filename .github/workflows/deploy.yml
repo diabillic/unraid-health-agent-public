@@ -1,0 +1,91 @@
+name: test-and-deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-unraid-agent
+  cancel-in-progress: false
+
+jobs:
+  # Tests run on GitHub-hosted runners, so pull requests (including from forks) never touch
+  # your self-hosted runner.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Unit tests
+        run: |
+          python -m pip install -q -r requirements.txt pytest
+          python -m pytest -q
+
+  # Deploys only from main, never for pull requests, and only once AGENT_HOST is configured
+  # (see README: Secrets and variables), so a fresh clone doesn't queue jobs for a missing runner.
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.AGENT_HOST != ''
+    runs-on: [self-hosted, proxmox]
+    env:
+      AGENT_HOST: ${{ vars.AGENT_HOST }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Render agent.env
+        env:
+          UNRAIDCLAW_URL: ${{ vars.UNRAIDCLAW_URL }}
+          UNRAIDCLAW_TLS_FINGERPRINT: ${{ vars.UNRAIDCLAW_TLS_FINGERPRINT }}
+          UNRAID_GRAPHQL_URL: ${{ vars.UNRAID_GRAPHQL_URL }}
+          UNRAID_API_KEY: ${{ secrets.UNRAID_API_KEY }}
+          INTERVAL_MINUTES: ${{ vars.INTERVAL_MINUTES }}
+          RENOTIFY_HOURS: ${{ vars.RENOTIFY_HOURS }}
+          DISK_TEMP_WARN: ${{ vars.DISK_TEMP_WARN }}
+          DISK_TEMP_CRIT: ${{ vars.DISK_TEMP_CRIT }}
+          DISK_USAGE_WARN: ${{ vars.DISK_USAGE_WARN }}
+          SMART_UNKNOWN_CYCLES: ${{ vars.SMART_UNKNOWN_CYCLES }}
+          PARITY_MAX_AGE_DAYS: ${{ vars.PARITY_MAX_AGE_DAYS }}
+          MEM_WARN_PERCENT: ${{ vars.MEM_WARN_PERCENT }}
+          LOAD_WARN: ${{ vars.LOAD_WARN }}
+          NOTIFICATION_LEVELS: ${{ vars.NOTIFICATION_LEVELS }}
+          DOCKER_IGNORE: ${{ vars.DOCKER_IGNORE }}
+          DOCKER_RW_WARN_GB: ${{ vars.DOCKER_RW_WARN_GB }}
+          DOCKER_LOG_WARN_GB: ${{ vars.DOCKER_LOG_WARN_GB }}
+          DOCKER_RW_GROWTH_GB: ${{ vars.DOCKER_RW_GROWTH_GB }}
+          DOCKER_UPDATES: ${{ vars.DOCKER_UPDATES }}
+          TEMP_SENSORS: ${{ vars.TEMP_SENSORS }}
+          CHECK_VMS: ${{ vars.CHECK_VMS }}
+          VM_IGNORE: ${{ vars.VM_IGNORE }}
+          OPENCODE_MODEL: ${{ vars.OPENCODE_MODEL }}
+          UNRAIDCLAW_API_KEY: ${{ secrets.UNRAIDCLAW_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          NOTIFY_URLS: ${{ secrets.NOTIFY_URLS }}
+        run: |
+          [ -n "$AGENT_HOST" ] || { echo "::error::repo variable AGENT_HOST is not set"; exit 1; }
+          [ -n "$UNRAIDCLAW_URL" ] && [ -n "$UNRAIDCLAW_API_KEY" ] || { echo "::error::UNRAIDCLAW_URL (variable) and UNRAIDCLAW_API_KEY (secret) are required"; exit 1; }
+          mkdir -p stage
+          cp -r unraid_agent requirements.txt stage/
+          (umask 077; : > stage/agent.env)
+          for v in UNRAIDCLAW_URL UNRAIDCLAW_TLS_FINGERPRINT UNRAID_GRAPHQL_URL UNRAID_API_KEY \
+                   INTERVAL_MINUTES RENOTIFY_HOURS DISK_TEMP_WARN \
+                   DISK_TEMP_CRIT DISK_USAGE_WARN SMART_UNKNOWN_CYCLES PARITY_MAX_AGE_DAYS MEM_WARN_PERCENT LOAD_WARN \
+                   NOTIFICATION_LEVELS DOCKER_IGNORE DOCKER_RW_WARN_GB DOCKER_LOG_WARN_GB DOCKER_RW_GROWTH_GB \
+                   DOCKER_UPDATES TEMP_SENSORS \
+                   CHECK_VMS VM_IGNORE OPENCODE_MODEL \
+                   UNRAIDCLAW_API_KEY OPENCODE_API_KEY NOTIFY_URLS; do
+            if [ -n "${!v}" ]; then printf '%s=%s\n' "$v" "${!v}" >> stage/agent.env; fi
+          done
+          echo "$GITHUB_SHA" > stage/REVISION
+
+      - name: Ship and install
+        run: |
+          rsync -a --delete --exclude '__pycache__' stage/ "deploy@$AGENT_HOST:staging/"
+          ssh "deploy@$AGENT_HOST" sudo /usr/local/sbin/unraid-agent-install
+
+      - name: Clean up rendered secrets
+        if: always()
+        run: rm -rf stage
