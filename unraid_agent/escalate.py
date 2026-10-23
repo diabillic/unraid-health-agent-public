@@ -182,12 +182,15 @@ class OpenCodeGo:
 
 
 def run_agent(client: OpenCodeGo, mcp: MCPClient, tools: list[dict], problems: str,
-              local: dict[str, Callable[[], Any]] | None = None) -> str | None:
+              local: dict[str, Callable[[], Any]] | None = None, server_notes: str = "") -> str | None:
     """`tools` holds every spec offered (MCP and agent_*); `local` maps agent_* names to their functions."""
     local = local or {}
     allowed = {t["function"]["name"] for t in tools}
+    system = SYSTEM_PROMPT + (AGENT_TOOLS_PROMPT if local else "")
+    if server_notes:
+        system += f"\n\nAbout this server, from its operator: {server_notes}"
     messages: list[dict] = [
-        {"role": "system", "content": SYSTEM_PROMPT + (AGENT_TOOLS_PROMPT if local else "")},
+        {"role": "system", "content": system},
         {"role": "user", "content": f"Problems found this cycle:\n{problems}"},
     ]
     for _ in range(MAX_TURNS):
@@ -236,7 +239,8 @@ def escalate(mcp: MCPClient, state: State, cfg: Config, findings: list[Finding],
         tools = read_only_tools(mcp.list_tools(), exclude=set() if cfg.check_vms else VM_TOOLS)
         extra = agent_tools(gql, cfg) if gql else {}
         tools += [spec for spec, _ in extra.values()]
-        text = run_agent(OpenCodeGo(cfg), mcp, tools, problems, {name: fn for name, (_, fn) in extra.items()})
+        text = run_agent(OpenCodeGo(cfg), mcp, tools, problems, {name: fn for name, (_, fn) in extra.items()},
+                         cfg.server_notes)
     except (requests.RequestException, MCPError, RuntimeError, KeyError, IndexError, ValueError) as exc:
         log.error("Diagnosis via OpenCode Go failed: %s", exc)
         return None

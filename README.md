@@ -131,6 +131,7 @@ required value is missing. Every setting is also documented in `.env.example`.
 | `UNRAIDCLAW_TLS_FINGERPRINT` | recommended | SHA-256 of unraidclaw's certificate as 64 hex characters (see TLS). Without it, TLS is verified normally, which fails for the default self-signed certificate. |
 | `UNRAID_GRAPHQL_URL` | with `UNRAID_API_KEY` | Unraid's GraphQL endpoint on the **WebGUI's HTTP port**, e.g. `http://192.168.1.10/graphql`, or `http://192.168.1.10:88/graphql` if the WebGUI was moved off port 80 (common when a reverse proxy owns 80/443). |
 | `CHECK_VMS` | optional | `true` (default); `false` if the server runs no VMs. |
+| `SERVER_NOTES` | optional | Free text about your server added to the diagnosis prompt, e.g. `ZFS pool of 8 disks, btrfs cache, no VMs, WebGUI on port 88`. Keeps server specifics out of the code. |
 | `DOCKER_IGNORE`, `VM_IGNORE` | optional | Comma-separated container / VM names never to report. |
 | thresholds, `NOTIFICATION_LEVELS`, `TEMP_SENSORS`, `DOCKER_UPDATES`, `SMART_UNKNOWN_CYCLES`, `INTERVAL_MINUTES`, `RENOTIFY_HOURS`, `OPENCODE_MODEL` | optional | Overrides; see `.env.example` for defaults. |
 

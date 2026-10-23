@@ -510,6 +510,10 @@ def test_agent_tools_give_the_model_pool_smart_temps_and_sizes(tmp_path):
     assert run_agent(llm, mcp, specs, "p", {n: fn for n, (_, fn) in tools.items()}) == "disks fine"
     assert mcp.calls == [] and "ZXTEST01" in llm.sent[1][-1]["content"]
     assert AGENT_TOOLS_PROMPT.strip()[:20] in llm.sent[0][0]["content"]
+    # SERVER_NOTES (a private repo variable) reaches the prompt without living in the code.
+    llm = ScriptedLLM([{"finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}])
+    run_agent(llm, mcp, specs, "p", server_notes="ZFS pool of 8 disks, no VMs")
+    assert llm.sent[0][0]["content"].endswith("About this server, from its operator: ZFS pool of 8 disks, no VMs")
 
 
 class FakeResp:
