@@ -39,6 +39,6 @@ ENV STATE_PATH=/var/lib/unraid-agent/state.json
 USER unraid-agent
 VOLUME ["/var/lib/unraid-agent"]
 EXPOSE 8765
-HEALTHCHECK --interval=60s --timeout=15s --start-period=2m --retries=3 \
+HEALTHCHECK --interval=60s --timeout=15s --start-period=2m --retries=5 \
   CMD ["python", "-m", "unraid_agent.health"]
 CMD ["python", "-m", "unraid_agent"]
