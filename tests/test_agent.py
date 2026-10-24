@@ -452,13 +452,13 @@ def test_notifier_once_cleared_and_incomplete(tmp_path):
     assert set(st["notified"]) == {"disk:d1:temp", "plugin:x:2"}
     st["notified"]["plugin:x:2"]["ts"] -= 10**6  # long ago: once-findings still never repeat
     sent = []
-    n.apobj = type("A", (), {"__len__": lambda s: 1, "notify": lambda s, title, body: sent.append(body) or True})()
+    n.outbox = type("O", (), {"send": lambda s, msg: sent.append(msg.markdown()) or True})()
     n.send([disk, once])
     assert sent == []
     n.send([once], complete=False)  # disk missing because checks were unavailable: not "cleared"
     assert sent == [] and "disk:d1:temp" in st["notified"]
     n.send([once])
-    assert len(sent) == 1 and "✅ Cleared: hot" in sent[0]
+    assert len(sent) == 1 and "**✅ Cleared**\n• hot" in sent[0]
 
 
 # --- LLM + MCP plumbing ---
