@@ -1,19 +1,18 @@
-"""Notifications via Apprise (Discord, Pushover, ntfy, Telegram, email, ... by URL)."""
+"""Notifications: Discord embeds, or any Apprise URL as markdown (see notice.py)."""
 
 from __future__ import annotations
 
 import logging
 import time
 
-import apprise
-
 from .bus import push_alert
 from .findings import Finding
+from .notice import Outbox, digest
 from .state import State
 
 log = logging.getLogger(__name__)
 
-ICON = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}
+AUTHOR = "Unraid agent"
 FOREVER_HOURS = 24 * 365 * 10
 
 
@@ -22,10 +21,7 @@ class Notifier:
         self.renotify_hours = renotify_hours
         self.state = state
         self.bot_url, self.bot_token = bot_url, bot_token  # Discord bot first, Apprise as fallback
-        self.apobj = apprise.Apprise()
-        for url in urls:
-            if not self.apobj.add(url):
-                log.warning("Ignoring invalid notification URL (scheme %s)", url.split(":", 1)[0])
+        self.outbox = Outbox(urls)
 
     def send(self, findings: list[Finding], diagnosis: str | None = None, complete: bool = True) -> None:
         """One digest per cycle: new issues, reminders every renotify_hours, and issues that cleared.
@@ -54,16 +50,9 @@ class Notifier:
         for f in due:
             notified[f.key] = {"ts": now, "summary": f.summary, "severity": f.severity, "once": f.once}
 
-        lines = [f"{ICON.get(f.severity, '•')} {f.summary}" for f in sorted(due, key=lambda f: f.severity != "error")]
-        lines += [f"✅ Cleared: {s}" for s in cleared]
-        if diagnosis:
-            lines += ["", "🧠 Diagnosis:", diagnosis]
-        open_issues = sum(1 for f in due if f.severity in ("warning", "error"))
-        title = f"Unraid agent: {open_issues} issue(s)" + (f", {len(cleared)} cleared" if cleared else "")
-        body = "\n".join(lines)
-
-        log.info("%s\n%s", title, body)
-        if self.bot_url and push_alert(self.bot_url, self.bot_token, "unraid", title, body, due, diagnosis):
+        msg = digest(AUTHOR, due, cleared, diagnosis)
+        body = msg.markdown()
+        log.info("%s\n%s", msg.title, body)
+        if self.bot_url and push_alert(self.bot_url, self.bot_token, "unraid", msg.title, body, due, diagnosis):
             return
-        if len(self.apobj) and not self.apobj.notify(title=title, body=body):
-            log.warning("One or more notification targets failed")
+        self.outbox.send(msg)
