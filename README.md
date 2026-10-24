@@ -69,6 +69,26 @@ command to compute the fingerprint is in `.env.example`.
 
 ## Deployment
 
+Every push to `main` runs the tests. The deploy job then sends the build context (the generated
+`Dockerfile` and `.dockerignore`, `requirements.txt` and the package) and a rendered `agent.env` to
+a Docker host. There, the root-owned `agent-deploy` builds the image and replaces the container,
+and rolls back if the new one doesn't stay up. Each build pulls the newest base image and runs
+`apt-get full-upgrade`, so every deployed image is fully patched. State lives in the
+`unraid-agent-data` volume.
+
+| Variable | Expected value |
+|---|---|
+| `AGENT_HOST` | Address of the Docker host. |
+| `PRIORITY` | `high` (default) or `low`. Picks the deploying runner (`[self-hosted, proxmox]` or `[self-hosted, low-priority]`) and sets the container label `homelab.priority`. |
+| `BUS_HOST_PORT` | Optional. Host port for the agent bus when several agents share a host. The container still listens on `AGENT_BUS_PORT`. |
+
+To prepare a Docker host, run `deploy/docker-host.sh` from the dockerfile-agent repository. It
+installs `agent-deploy`, creates the `deploy` user, allows only the given runners in, and turns
+on unattended security upgrades. The LXC deployment below (`deploy/provision.sh`) still works as
+an alternative.
+
+### LXC deployment (alternative)
+
 Same pattern as [sonarr-health-agent-public](../../../sonarr-health-agent-public): a systemd service
 in an unprivileged Proxmox LXC, deployed by GitHub Actions through a self-hosted runner in a
 second LXC.
