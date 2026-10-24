@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 import requests
 
+from . import health
 from .bus import Approvals, BusTool, Runtime, serve_mcp
 from .checks import Checks
 from .config import Config
@@ -23,6 +24,7 @@ from .state import State
 log = logging.getLogger("unraid_agent")
 
 INCOMPLETE_KEYS = {"mcp:down", "mcp:degraded", "mcp:tools-failing", "mcp:permissions"}
+CYCLE_GRACE = 15 * 60  # longest a cycle (checks plus an LLM diagnosis) should take
 
 
 def bus_tools(cfg: Config, runtime: Runtime) -> list[BusTool]:
@@ -91,8 +93,10 @@ def main() -> None:
     notifier = Notifier(cfg.notify_urls, cfg.renotify_hours, state, cfg.bot_alert_url, cfg.bus_token)
     runtime = Runtime("unraid", revision=_revision())
     approvals = Approvals("unraid", cfg.approval_urls, mode=cfg.approval_mode)
+    health.reset()
     if cfg.bus_token and cfg.bus_port and not args.once:
         serve_mcp("0.0.0.0", cfg.bus_port, cfg.bus_token, bus_tools(cfg, runtime), "unraid-agent", approvals)
+        health.endpoint("agent bus", f"http://127.0.0.1:{cfg.bus_port}/health")
     log.info(
         "Starting: unraidclaw=%s pinned=%s pools=%s escalation=%s model=%s bus=%s approvals=%s/%s bot_alerts=%s interval=%smin",
         cfg.mcp_url, bool(cfg.mcp_fingerprint), cfg.pools_enabled, cfg.escalation_enabled, cfg.opencode_model,
@@ -100,6 +104,7 @@ def main() -> None:
     )
 
     while True:
+        health.beat("checks", cfg.interval_minutes * 60 + CYCLE_GRACE)
         try:
             findings = run_cycle(cfg, mcp, state, notifier, runtime)
             log.info("Cycle done: %d finding(s)", len(findings))

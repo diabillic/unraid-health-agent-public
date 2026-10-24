@@ -165,6 +165,10 @@ ssh root@<agent-ip> journalctl -u unraid-agent -f
 cat /opt/unraid-agent/app/REVISION
 ```
 
+The container has a Docker health check (`python -m unraid_agent.health`): it turns `unhealthy` when a
+check cycle is more than 15 minutes overdue (`INTERVAL_MINUTES` plus 15) or the agent bus stops
+answering `/health`. `docker inspect --format '{{json .State.Health}}' unraid-agent` shows why.
+
 ## Agent bus (MCP for an assistant such as Hermes Agent)
 
 Optional. When `AGENT_BUS_TOKEN` is set, the agent serves its tools at `http://<agent>:8765/mcp`
