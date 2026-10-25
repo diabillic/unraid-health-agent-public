@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 
 
@@ -26,6 +27,18 @@ def _float(name: str, default: float) -> float:
 def _list(name: str, default: str = "") -> list[str]:
     raw = os.environ.get(name, default)
     return [p.strip() for p in raw.replace("\n", ",").split(",") if p.strip()]
+
+
+def _windows(name: str) -> list[tuple[int, int]]:
+    """"05:00-05:10,23:50-00:20" -> [(300, 310), (1430, 20)]: minutes after midnight, end exclusive."""
+    out = []
+    for part in _list(name):
+        m = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)\s*-\s*([01]?\d|2[0-3]):([0-5]\d)", part)
+        if not m:
+            raise SystemExit(f"{name}: {part!r} is not HH:MM-HH:MM")
+        h1, m1, h2, m2 = map(int, m.groups())
+        out.append((h1 * 60 + m1, h2 * 60 + m2))
+    return out
 
 
 DEFAULT_SYSLOG_PATTERNS = (
@@ -84,6 +97,9 @@ class Config:
     docker_log_warn_gb: float = 1.0
     docker_rw_growth_gb: float = 2.0  # writable-layer growth within 24 h
     docker_updates: bool = True  # one-time notice per container with an image update
+    # Daily local-time windows when containers stopping is expected (e.g. an appdata backup)
+    docker_quiet_windows: list[tuple[int, int]] = field(default_factory=list)
+    timezone: str = ""  # IANA zone for those windows; empty uses the system zone
     temp_sensors: str = DEFAULT_TEMP_SENSORS  # regex over sensor names; empty disables
     temp_grace_minutes: int = 10  # a CPU/board sensor must stay hot this long before alerting (load spikes)
     check_vms: bool = True
@@ -147,6 +163,8 @@ class Config:
             docker_log_warn_gb=_float("DOCKER_LOG_WARN_GB", 1.0),
             docker_rw_growth_gb=_float("DOCKER_RW_GROWTH_GB", 2.0),
             docker_updates=_bool("DOCKER_UPDATES", True),
+            docker_quiet_windows=_windows("DOCKER_QUIET_WINDOWS"),
+            timezone=os.environ.get("TZ", "").strip(),
             temp_sensors=os.environ.get("TEMP_SENSORS", DEFAULT_TEMP_SENSORS).strip(),
             temp_grace_minutes=max(0, _int("TEMP_GRACE_MINUTES", 10)),
             check_vms=_bool("CHECK_VMS", True),

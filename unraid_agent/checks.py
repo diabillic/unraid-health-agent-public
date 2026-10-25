@@ -11,6 +11,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 
@@ -262,8 +263,18 @@ class Checks:
 
     # --- docker & VMs ---
 
+    def _quiet(self, windows: list[tuple[int, int]]) -> bool:
+        if not windows:
+            return False
+        try:
+            local = self.now.astimezone(ZoneInfo(self.cfg.timezone)) if self.cfg.timezone else self.now.astimezone()
+        except (ZoneInfoNotFoundError, ValueError):
+            local = self.now.astimezone()
+        m = local.hour * 60 + local.minute
+        return any(a <= m < b if a <= b else m >= a or m < b for a, b in windows)
+
     def _guests(self, kind: str, rows: list[dict], ignore: list[str], is_running: Callable[[dict], bool],
-                problem: Callable[[dict], str | None]) -> list[Finding]:
+                problem: Callable[[dict], str | None], quiet: bool = False) -> list[Finding]:
         out, seen = [], set()
         last = self.state["last_running"]
         for r in rows:
@@ -279,6 +290,10 @@ class Checks:
             issue = problem(r)
             if issue:
                 out.append(Finding(f"{key}:issue", f"{label} {name} is {issue}.", escalate=True, details={kind: r}))
+            elif not running and last.get(key) is True and quiet:
+                # Expected stop (e.g. a backup): keep it as running, so it alerts if still down after the window
+                log.info("%s %s is %s during a quiet window; not alerting", label, name, state_txt)
+                continue
             elif not running and first(r, "autoStart", "autostart") is True:
                 out.append(Finding(f"{key}:down", f"{label} {name} is {state_txt} but set to autostart.", "error",
                                    escalate=True, details={kind: r}))
@@ -305,7 +320,8 @@ class Checks:
                 return f"crash-looping ({first(r, 'status', default='restarting')})"
             return None
 
-        return self._guests("docker", rows, self.cfg.docker_ignore, running, problem)
+        return self._guests("docker", rows, self.cfg.docker_ignore, running, problem,
+                            self._quiet(self.cfg.docker_quiet_windows))
 
     def temperatures(self) -> list[Finding]:
         """CPU and board temperatures against each sensor's Unraid thresholds (trusted sensors only)."""
