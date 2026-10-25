@@ -141,6 +141,41 @@ def test_container_crash_detected_by_transition(tmp_path):
     assert Checks(down, st, c, NOW).run() == []  # reported once; still down but no longer a transition
 
 
+def test_containers_stopping_in_a_quiet_window_alert_only_if_still_down_after(tmp_path):
+    c = cfg(tmp_path, docker_quiet_windows=[(300, 310)], timezone="America/New_York")
+    st = State(c.state_path)
+    at = lambda hh, mm: datetime(2026, 10, 23, hh + 4, mm, tzinfo=timezone.utc)  # EDT is UTC-4
+    up = FakeMCP(unraid_docker_list=[{"name": "radarr", "state": "running", "autoStart": True},
+                                     {"name": "sab", "state": "running", "autoStart": False}])
+    down = FakeMCP(unraid_docker_list=[{"name": "radarr", "state": "exited", "autoStart": True},
+                                       {"name": "sab", "state": "exited", "autoStart": False}])
+    back = FakeMCP(unraid_docker_list=[{"name": "radarr", "state": "running", "autoStart": True},
+                                       {"name": "sab", "state": "exited", "autoStart": False}])
+    assert Checks(up, st, c, at(4, 55)).run() == []
+    assert Checks(down, st, c, at(5, 0)).run() == []  # the backup stopped both
+    assert Checks(down, st, c, at(5, 9)).run() == []
+    # radarr came back; sab didn't, so it alerts once the window ends at 05:10
+    assert keys(Checks(back, st, c, at(5, 10)).run()) == {"docker:sab:down"}
+    # a stop outside the window alerts as before
+    assert keys(Checks(down, st, c, at(6, 0)).run()) == {"docker:radarr:down"}
+
+
+def test_quiet_windows_parse_and_wrap_midnight(tmp_path, monkeypatch):
+    monkeypatch.setenv("UNRAIDCLAW_URL", "https://u/mcp")
+    monkeypatch.setenv("UNRAIDCLAW_API_KEY", "k")
+    monkeypatch.setenv("DOCKER_QUIET_WINDOWS", "05:00-05:10, 23:50-0:20")
+    monkeypatch.setenv("TZ", "UTC")
+    c = Config.from_env()
+    assert c.docker_quiet_windows == [(300, 310), (1430, 20)] and c.timezone == "UTC"
+    ck = Checks(FakeMCP(), State(str(tmp_path / "s.json")), c, NOW)
+    for hh, mm, quiet in [(23, 55, True), (0, 10, True), (0, 20, False), (5, 0, True), (5, 10, False), (12, 0, False)]:
+        ck.now = datetime(2026, 10, 23, hh, mm, tzinfo=timezone.utc)
+        assert ck._quiet(c.docker_quiet_windows) is quiet, (hh, mm)
+    monkeypatch.setenv("DOCKER_QUIET_WINDOWS", "5am-5:10")
+    with pytest.raises(SystemExit):
+        Config.from_env()
+
+
 def test_unhealthy_and_ignored_containers(tmp_path):
     rows = [{"name": "a", "state": "running", "status": "Up 1h (unhealthy)"}, {"name": "b", "state": "restarting"},
             {"name": "c", "state": "running", "status": "Up (unhealthy)"}]

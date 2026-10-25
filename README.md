@@ -14,7 +14,7 @@ using **read-only** tools. It never changes the server.
 | Disks (array, parity, and pools via `UNRAID_API_KEY`) | status not `DISK_OK`/`DISK_NP`; temp ≥ `DISK_TEMP_WARN`/`DISK_TEMP_CRIT`; usage ≥ the disk's own Unraid utilization warning/critical % (else `DISK_USAGE_WARN`); read/write errors | status, errors |
 | SMART (via `UNRAID_API_KEY`) | a spinning disk's SMART status isn't `OK` for `SMART_UNKNOWN_CYCLES` checks in a row (default 2). Unraid's API reports a failing self-assessment as `UNKNOWN`. `isSpinning` is ignored because the API reports it false for every disk, while drives in standby still read `OK`. Named by device, model and serial | yes |
 | Parity | last check had errors or ended abnormally; older than `PARITY_MAX_AGE_DAYS`; none on record | errors |
-| Docker | autostart container not running; running → stopped since last cycle; unhealthy; restarting | yes |
+| Docker | autostart container not running; running → stopped since last cycle; unhealthy; restarting. Stops during a `DOCKER_QUIET_WINDOWS` window (e.g. a nightly appdata backup) don't alert; a container still down when the window ends does | yes |
 | CPU/board temperatures (via `UNRAID_API_KEY`) | a sensor matching `TEMP_SENSORS` reaches its Unraid warning/critical limit or status and stays there for `TEMP_GRACE_MINUTES` (default 10), so a spike from a job that cools down doesn't alert. With checks every `INTERVAL_MINUTES`, the delay is the larger of the two. The default list covers CPU (k10temp/coretemp Tctl, Tccd, Package) and board (SYSTIN, CPUTIN, MB Temp) sensors; Super-I/O voltage inputs, fans, unconnected AUXTIN headers and TSI (a duplicate of Tctl) are ignored, and disks/NVMe are covered by the disk check | yes |
 | Container updates (via `UNRAID_API_KEY`, `DOCKER_UPDATES`) | an image update is available (once per container) | no |
 | UPS (NUT) | `upsmon` syslog events: on battery, battery low, communications lost, replace battery, forced shutdown. Unraid's API only reads apcupsd, so NUT isn't visible there | yes |
@@ -153,6 +153,7 @@ required value is missing. Every setting is also documented in `.env.example`.
 | `CHECK_VMS` | optional | `true` (default); `false` if the server runs no VMs. |
 | `SERVER_NOTES` | optional | Free text about your server added to the diagnosis prompt, e.g. `ZFS pool of 8 disks, btrfs cache, no VMs, WebGUI on port 88`. Keeps server specifics out of the code. |
 | `DOCKER_IGNORE`, `VM_IGNORE` | optional | Comma-separated container / VM names never to report. |
+| `DOCKER_QUIET_WINDOWS` | optional | Comma-separated daily `HH:MM-HH:MM` windows, in the container's `TZ`, when containers stopping is expected, e.g. `05:00-05:10` while an appdata backup stops them one by one. |
 | thresholds, `NOTIFICATION_LEVELS`, `TEMP_SENSORS`, `TEMP_GRACE_MINUTES`, `DOCKER_UPDATES`, `SMART_UNKNOWN_CYCLES`, `INTERVAL_MINUTES`, `RENOTIFY_HOURS`, `OPENCODE_MODEL` | optional | Overrides; see `.env.example` for defaults. |
 
 Changing a variable or secret takes effect on the next deploy: re-run the workflow
