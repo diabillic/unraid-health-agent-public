@@ -20,7 +20,7 @@ from typing import Any, Callable
 import requests
 
 from .checks import number
-from .config import Config
+from .config import Config, trusted_temp_sensors
 from .findings import Finding
 from .graphql import GraphQLError, UnraidGraphQL
 from .mcp import MCPClient, MCPError
@@ -92,9 +92,11 @@ def agent_tools(gql: UnraidGraphQL, cfg: Config) -> dict[str, tuple[dict, Callab
                          "Unraid reports a failing self-assessment as UNKNOWN."}
 
     def temperatures() -> dict:
-        wanted = re.compile(cfg.temp_sensors, re.I) if cfg.temp_sensors else None
+        sensors = gql.temperature_sensors()
+        wanted = trusted_temp_sensors(cfg.temp_sensors, [str(s.get("name") or "") for s in sensors
+                                                         if s.get("type") not in ("DISK", "NVME")])
         trusted, excluded = [], 0
-        for s in gql.temperature_sensors():
+        for s in sensors:
             name = str(s.get("name") or "")
             if s.get("type") in ("DISK", "NVME") or not wanted or not wanted.search(name):
                 excluded += 1

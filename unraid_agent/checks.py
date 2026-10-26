@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 
-from .config import Config
+from .config import CPU_TEMP_SENSORS, Config, trusted_temp_sensors
 from .findings import Finding
 from .graphql import GraphQLError, UnraidGraphQL
 from .mcp import MCPClient, MCPError, ToolError
@@ -324,28 +324,34 @@ class Checks:
                             self._quiet(self.cfg.docker_quiet_windows))
 
     def temperatures(self) -> list[Finding]:
-        """CPU and board temperatures against each sensor's Unraid thresholds (trusted sensors only)."""
+        """CPU and board temperatures against each sensor's Unraid thresholds (trusted sensors only), or
+        CPU_TEMP_WARN/CPU_TEMP_CRIT for the CPU."""
         if not self.gql or not self.cfg.temp_sensors:
             return []
         try:
             sensors = self.gql.temperature_sensors()
         except (GraphQLError, requests.RequestException, ValueError) as exc:
             return [Finding("temp:unavailable", f"Couldn't read temperature sensors from Unraid's API: {exc}")]
-        wanted = re.compile(self.cfg.temp_sensors, re.I)
+        sensors = [s for s in sensors if s.get("type") not in ("DISK", "NVME")]
+        wanted = trusted_temp_sensors(self.cfg.temp_sensors, [str(s.get("name") or "") for s in sensors])
+        cpu = re.compile(CPU_TEMP_SENSORS, re.I)
         units = {"CELSIUS": "°C", "FAHRENHEIT": "°F", "KELVIN": "K", "RANKINE": "°R"}
         hot = self.state["temp_hot"]  # sensor -> when it first read over its limit, for the spike grace period
         now = self.now.timestamp()
         out, still_hot = [], set()
         for s in sensors:
             name = str(s.get("name") or "")
-            if s.get("type") in ("DISK", "NVME") or not wanted.search(name):
+            if not wanted.search(name):
                 continue
             cur = s.get("current") or {}
             value, warn, crit = number(cur.get("value")), number(s.get("warning")), number(s.get("critical"))
+            own_limits = cpu.search(name) and (self.cfg.cpu_temp_warn or self.cfg.cpu_temp_crit)
+            if own_limits:  # Unraid's limits (and the status it derives from them) don't fit this CPU
+                warn, crit = self.cfg.cpu_temp_warn or warn, self.cfg.cpu_temp_crit or crit
             if value is None or not 0 < value < 150:
                 continue  # unconnected headers read 0, negative or absurd values
             unit = units.get(str(cur.get("unit")), "°")
-            status = str(cur.get("status") or "").upper()
+            status = "" if own_limits else str(cur.get("status") or "").upper()
             limit = lambda v: f"{v:g}{unit}" if v else "Unraid's limit"  # noqa: E731
             if (crit and value >= crit) or status == "CRITICAL":
                 f = Finding(f"temp:{name}", f"{name} is at {value:.0f}{unit} (critical ≥ {limit(crit)}).", "error",
