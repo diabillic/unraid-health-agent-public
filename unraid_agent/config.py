@@ -62,6 +62,22 @@ DEFAULT_SYSLOG_PATTERNS = (
 # by the disk check. TSI*_TEMP is left out: it's the board's copy of the AMD CPU reading that
 # k10temp Tctl already reports, so including it doubles every CPU alert.
 DEFAULT_TEMP_SENSORS = r"k10temp|coretemp|zenpower|Tctl|Tdie|Tccd|Package id|Core \d+|CPUTIN|SYSTIN|MB Temp"
+# TEMP_SENSORS=auto follows Unraid: when the System Temp plugin has labelled a sensor "CPU Temp" (the one
+# the dashboard shows), only Unraid's labelled CPU and board sensors are trusted; otherwise the list above.
+UNRAID_TEMP_LABELS = r" (CPU Temp|MB Temp)$"
+# Sensors that read the CPU itself, for CPU_TEMP_WARN/CPU_TEMP_CRIT. Unraid's API only treats names with
+# "package" or "core" as CPU, so an AMD k10temp "CPU Temp" gets its generic 80/90 limits.
+CPU_TEMP_SENSORS = r"CPU Temp|k10temp|coretemp|zenpower|Tctl|Tdie|Tccd|Package id|Core \d+"
+
+
+def trusted_temp_sensors(setting: str, names: list[str]) -> "re.Pattern | None":
+    """The sensors to trust among `names` for TEMP_SENSORS `setting` (None: the check is off)."""
+    if not setting:
+        return None
+    if setting.lower() == "auto":  # follow what Unraid's dashboard shows, when it labels a CPU sensor
+        labelled = any(re.search(UNRAID_TEMP_LABELS, n) and "CPU" in n for n in names)
+        setting = UNRAID_TEMP_LABELS if labelled else DEFAULT_TEMP_SENSORS
+    return re.compile(setting, re.I)
 
 
 @dataclass
@@ -100,7 +116,9 @@ class Config:
     # Daily local-time windows when containers stopping is expected (e.g. an appdata backup)
     docker_quiet_windows: list[tuple[int, int]] = field(default_factory=list)
     timezone: str = ""  # IANA zone for those windows; empty uses the system zone
-    temp_sensors: str = DEFAULT_TEMP_SENSORS  # regex over sensor names; empty disables
+    temp_sensors: str = "auto"  # "auto" (Unraid's labelled sensors), a regex over sensor names, or empty to disable
+    cpu_temp_warn: int = 0  # CPU sensors' limits in °C instead of Unraid's (0 = Unraid's per-sensor limits)
+    cpu_temp_crit: int = 0
     temp_grace_minutes: int = 10  # a CPU/board sensor must stay hot this long before alerting (load spikes)
     check_vms: bool = True
     vm_ignore: list[str] = field(default_factory=list)
@@ -165,7 +183,9 @@ class Config:
             docker_updates=_bool("DOCKER_UPDATES", True),
             docker_quiet_windows=_windows("DOCKER_QUIET_WINDOWS"),
             timezone=os.environ.get("TZ", "").strip(),
-            temp_sensors=os.environ.get("TEMP_SENSORS", DEFAULT_TEMP_SENSORS).strip(),
+            temp_sensors=os.environ.get("TEMP_SENSORS", "auto").strip(),
+            cpu_temp_warn=max(0, _int("CPU_TEMP_WARN", 0)),
+            cpu_temp_crit=max(0, _int("CPU_TEMP_CRIT", 0)),
             temp_grace_minutes=max(0, _int("TEMP_GRACE_MINUTES", 10)),
             check_vms=_bool("CHECK_VMS", True),
             vm_ignore=_list("VM_IGNORE"),

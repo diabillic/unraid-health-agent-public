@@ -683,3 +683,25 @@ def test_discord_posts_are_sent_under_the_agents_own_name(monkeypatch):
     assert notice.Outbox([url]).send(notice.Message("hi"))
     notice.Outbox([url], username="Someone else").send(notice.Message("hi"))
     assert [p["username"] for p in posted] == ["unraid-agent", "Someone else"]
+
+
+def test_temperatures_follow_unraid_labels_and_cpu_limits(tmp_path):
+    c = cfg(tmp_path)
+    c.temp_grace_minutes = 0
+    # What Unraid's System Temp plugin labels: k10temp temp1 is "CPU Temp", the dashboard's CPU reading.
+    sensors = [_sensor("k10temp-pci-00c3 CPU Temp", 81, status="WARNING"), _sensor("k10temp-pci-00c3 Tccd1", 87,
+               status="WARNING"), _sensor("nct6798-isa-0290 MB Temp", 31), _sensor("nct6798-isa-0290 CPUTIN", 82)]
+
+    def check(sensors):
+        g = FakeGQL([{"name": "x", "status": "DISK_OK"}], sensors=sensors)
+        return {f.key: f for f in Checks(FakeMCP(unraid_disk_list=[]), State(c.state_path), c, NOW, g).run()}
+
+    # auto: only Unraid's labelled sensors; Tccd1 and CPUTIN aren't what Unraid shows
+    assert set(check(sensors)) == {"temp:k10temp-pci-00c3 CPU Temp"}
+    c.cpu_temp_warn, c.cpu_temp_crit = 90, 95  # the CPU's own limits replace Unraid's generic 80/90 and its status
+    assert check(sensors) == {}
+    hot = [_sensor("k10temp-pci-00c3 CPU Temp", 92)] + sensors[1:]
+    f = check(hot)["temp:k10temp-pci-00c3 CPU Temp"]
+    assert f.severity == "warning" and "warn ≥ 90°C" in f.summary
+    assert check([_sensor("k10temp-pci-00c3 CPU Temp", 96)])["temp:k10temp-pci-00c3 CPU Temp"].severity == "error"
+    assert set(check([_sensor("nct6798-isa-0290 MB Temp", 85)] + sensors[:1])) == {"temp:nct6798-isa-0290 MB Temp"}
