@@ -65,14 +65,15 @@ def bus_tools(cfg: Config, runtime: Runtime) -> list[BusTool]:
 
 def run_cycle(cfg: Config, mcp: MCPClient, state: State, notifier: Notifier, runtime: Runtime | None = None) -> list[Finding]:
     gql = UnraidGraphQL(cfg.unraid_graphql_url, cfg.unraid_api_key) if cfg.pools_enabled else None
-    findings = Checks(mcp, state, cfg, datetime.now(timezone.utc), gql).run()
+    checks = Checks(mcp, state, cfg, datetime.now(timezone.utc), gql)
+    findings = checks.run()
     try:
         diagnosis = escalate(mcp, state, cfg, findings, gql)
     except Exception:  # diagnosis is best-effort; never lose the notification over it
         log.exception("Escalation failed")
         diagnosis = None
     complete = not any(f.key in INCOMPLETE_KEYS for f in findings)
-    notifier.send(findings, diagnosis, complete=complete)
+    notifier.send(findings, diagnosis, complete=complete, unchecked=tuple(checks.unchecked))
     state.expire("seen", 24 * 30)
     state.expire("escalated", 24 * 7)
     state.save()

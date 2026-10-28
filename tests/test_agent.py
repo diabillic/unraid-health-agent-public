@@ -496,6 +496,47 @@ def test_notifier_once_cleared_and_incomplete(tmp_path):
     assert len(sent) == 1 and "**✅ Cleared**\n• hot" in sent[0]
 
 
+def test_undelivered_digest_is_retried(tmp_path):
+    st = State(str(tmp_path / "s.json"))
+    n = Notifier([], 12, st)
+    sent, ok = [], [False]
+    n.outbox = type("O", (), {"send": lambda s, msg: sent.append(msg.markdown()) or ok[0]})()
+    hot = Finding("disk:d1:temp", "hot", "warning")
+    st["notified"]["disk:d1:temp"] = {"ts": 0, "summary": "hot", "severity": "warning", "once": False}
+    event = Finding("syslog:abc", "nvme timeout", "error", once=True)  # the syslog check reports it only once
+    n.send([event], "diagnosis text")  # disk cooled, NVMe event: the post fails
+    assert st["notified"] == {"disk:d1:temp": st["notified"]["disk:d1:temp"]}  # nothing counts as sent
+    n.send([])  # next cycle: the event isn't found again, but it's still owed
+    ok[0] = True
+    n.send([])
+    assert len(sent) == 3
+    assert "nvme timeout" in sent[2] and "diagnosis text" in sent[2] and "**✅ Cleared**\n• hot" in sent[2]
+    assert set(st["notified"]) == {"syslog:abc"}
+    n.send([])
+    assert len(sent) == 3  # delivered: nothing is repeated
+
+
+def test_unraid_api_outage_doesnt_clear_its_alerts(tmp_path):
+    from unraid_agent.graphql import GraphQLError
+    c = cfg(tmp_path, smart_unknown_cycles=1)
+    st = State(c.state_path)
+    n = Notifier([], 12, st)
+    sent = []
+    n.outbox = type("O", (), {"send": lambda s, msg: sent.append(msg.markdown()) or True})()
+    failing = {"device": "/dev/sdd", "serialNum": "ZXTEST01", "smartStatus": "UNKNOWN"}
+
+    def cycle(gql):
+        checks = Checks(FakeMCP(unraid_disk_list=[]), st, c, NOW, gql)
+        n.send(checks.run(), unchecked=checks.unchecked)
+
+    cycle(FakeGQL([{"name": "x", "status": "DISK_OK"}], physical=[failing]))
+    assert "smart:ZXTEST01" in st["notified"] and len(sent) == 1
+    cycle(FakeGQL([{"name": "x", "status": "DISK_OK"}], smart_error=GraphQLError("HTTP 500")))
+    assert "Cleared" not in sent[-1] and "smart:ZXTEST01" in st["notified"]  # couldn't read SMART: still failing
+    cycle(FakeGQL([{"name": "x", "status": "DISK_OK"}], physical=[dict(failing, smartStatus="OK")]))
+    assert "**✅ Cleared**\n• SMART status for sdd" in sent[-1]
+
+
 # --- LLM + MCP plumbing ---
 
 TOOLS = [

@@ -81,6 +81,8 @@ class Checks:
         self.mcp, self.state, self.cfg, self.now, self.gql = mcp, state, cfg, now, gql
         self.syslog_rx = [re.compile(p, re.I) for p in cfg.syslog_patterns]
         self.parity_disks: int | None = None  # learned from array status; None = unknown
+        # Key prefixes of checks whose Unraid API data couldn't be read: their open alerts aren't cleared
+        self.unchecked: list[str] = []
 
     def run(self) -> list[Finding]:
         try:
@@ -170,6 +172,7 @@ class Checks:
             try:
                 rows += [self._pool_row(p) for p in self.gql.pool_disks()]
             except (GraphQLError, requests.RequestException, ValueError) as exc:
+                self.unchecked.append("disk:")
                 out.append(Finding("disk:pools-unavailable",
                                    f"Couldn't read pool disks from Unraid's API ({self.cfg.unraid_graphql_url}): {exc}"))
         if not rows and not out:
@@ -210,6 +213,7 @@ class Checks:
         try:
             disks = self.gql.physical_disks()
         except (GraphQLError, requests.RequestException, ValueError) as exc:
+            self.unchecked.append("smart:")
             return [Finding("smart:unavailable", f"Couldn't read SMART status from Unraid's API: {exc}")]
         streak = self.state["smart"]
         present, out = set(), []
@@ -331,6 +335,7 @@ class Checks:
         try:
             sensors = self.gql.temperature_sensors()
         except (GraphQLError, requests.RequestException, ValueError) as exc:
+            self.unchecked.append("temp:")
             return [Finding("temp:unavailable", f"Couldn't read temperature sensors from Unraid's API: {exc}")]
         sensors = [s for s in sensors if s.get("type") not in ("DISK", "NVME")]
         wanted = trusted_temp_sensors(self.cfg.temp_sensors, [str(s.get("name") or "") for s in sensors])
@@ -384,6 +389,7 @@ class Checks:
         try:
             rows = self.gql.container_sizes()
         except (GraphQLError, requests.RequestException, ValueError) as exc:
+            self.unchecked.append("docker:")  # also holds container-down alerts for this cycle; they clear next one
             return [Finding("docker:sizes-unavailable", f"Couldn't read container sizes from Unraid's API: {exc}")]
         history = self.state["docker_sizes"]  # name -> [[ts, rw_bytes], ...], about hourly, last 24 h
         now = self.now.timestamp()
