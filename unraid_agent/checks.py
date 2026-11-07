@@ -538,6 +538,6 @@ class Checks:
         except (userscripts.ReportError, OSError, subprocess.SubprocessError) as exc:
             log.warning("User Scripts report unavailable: %s", exc)
             self.unchecked.append(userscripts.PREFIX)
-            return [Finding("userscripts:unreachable", f"Can't read the User Scripts status from Unraid over SSH: {exc}. "
+            return [Finding("userscripts:unreachable", f"Can't read the User Scripts status from Unraid over SSH: {str(exc).rstrip('.')}. "
                             "If the key isn't installed yet, run deploy/install-userscripts-access.sh.")]
         return userscripts.check(report, self.cfg)
