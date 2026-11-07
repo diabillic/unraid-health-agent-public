@@ -24,11 +24,41 @@ using **read-only** tools. It never changes the server.
 | Syslog | new lines matching disk I/O, ATA link, BTRFS/XFS/EXT4, MCE, OOM, NVMe patterns | yes |
 | System | memory ≥ `MEM_WARN_PERCENT`; 15-min load ≥ `LOAD_WARN` (if set) | memory |
 | Plugins | update available (once per version) | no |
+| User Scripts (via SSH, `USERSCRIPTS_HOST`) | a run logged error lines (once per run); a run started but its process is gone without "Script Finished" (killed, OOM); still running after `USERSCRIPTS_MAX_RUNTIME_HOURS`; a scheduled run didn't start within `USERSCRIPTS_GRACE_MINUTES`; a schedule points at a deleted script. See [User Scripts](#user-scripts) | no |
 
 **Notifications:** one digest per cycle. New issues are sent immediately and repeated every
 `RENOTIFY_HOURS` while they persist. One-off items (forwarded notices, syslog batches, plugin
 updates) are sent once. When an issue goes away you get `✅ Cleared`. A cycle where some checks
 couldn't run (unraidclaw degraded or down) never counts as "cleared".
+
+## User Scripts
+
+The User Scripts plugin discards every script's exit code and always logs "Script Finished", so
+the agent judges a run by its log (`/tmp/user.scripts/tmpScripts/<name>/log.txt`, where the plugin
+appends each run between `Script Starting` and `Script Finished`). unraidclaw has no User Scripts
+tool, so the agent reads this over SSH: its own key, made inside the container on first start and
+kept in its volume, may only run `deploy/unraid/userscripts-report.php`, which prints a JSON
+summary of each script's latest run and changes nothing.
+
+- **Errors:** lines of the latest finished run matching the built-in patterns (`ERROR`,
+  `error:`, `Error response`, `failed to`, `fatal`, `command not found`, `permission denied`,
+  `no such file or directory`, Python tracebacks, `Killed`, OOM, rclone's `Errors: N`), minus
+  `USERSCRIPTS_IGNORE_LINES`. Add your own with `USERSCRIPTS_EXTRA_ERRORS`. Each failed run is
+  reported once.
+- **Missed runs:** custom cron schedules, and hourly/daily/weekly/monthly at the times in root's
+  crontab (Unraid's run-parts lines). Nothing is expected for times before the server booted, since
+  `/tmp` starts empty. Array start/stop schedules aren't timed.
+- **Exit codes:** to make a failure visible, have the script print a line the patterns catch, e.g.
+  `... || echo "ERROR: backup failed"`.
+
+Setup:
+
+1. Set the variables `USERSCRIPTS_HOST` (Unraid's address) and `USERSCRIPTS_HOST_KEY` (the first
+   two fields of `/boot/config/ssh/ssh_host_ed25519_key.pub` on Unraid) and deploy. Until step 2 the
+   agent reports "Can't read the User Scripts status".
+2. Install the reporter and the key on Unraid (both persist on the flash drive):
+   `UNRAID=root@<unraid> PVE=<node> VM=<docker-host-vmid> FROM=<docker-host-ip> deploy/install-userscripts-access.sh`
+   (`UNRAID_SSH_OPTS="-i <key>"` if you need a specific key).
 
 ## unraidclaw prerequisites
 
@@ -154,7 +184,10 @@ required value is missing. Every setting is also documented in `.env.example`.
 | `SERVER_NOTES` | optional | Free text about your server added to the diagnosis prompt, e.g. `ZFS pool of 8 disks, btrfs cache, no VMs, WebGUI on port 88`. Keeps server specifics out of the code. |
 | `DOCKER_IGNORE`, `VM_IGNORE` | optional | Comma-separated container / VM names never to report. |
 | `DOCKER_QUIET_WINDOWS` | optional | Comma-separated daily `HH:MM-HH:MM` windows, in the container's `TZ`, when containers stopping is expected, e.g. `05:00-05:10` while an appdata backup stops them one by one. |
-| thresholds, `NOTIFICATION_LEVELS`, `TEMP_SENSORS`, `TEMP_GRACE_MINUTES`, `CPU_TEMP_WARN`, `CPU_TEMP_CRIT`, `DOCKER_UPDATES`, `SMART_UNKNOWN_CYCLES`, `INTERVAL_MINUTES`, `RENOTIFY_HOURS`, `OPENCODE_MODEL` | optional | Overrides; see `.env.example` for defaults. |
+| `USERSCRIPTS_HOST`, `USERSCRIPTS_HOST_KEY` | optional | Turn on the [User Scripts](#user-scripts) check. |
+| `USERSCRIPTS_IGNORE` | optional | Comma-separated User Script names never to report. |
+| `USERSCRIPTS_IGNORE_LINES`, `USERSCRIPTS_EXTRA_ERRORS` | optional | One regex each: log lines that are never errors / extra error patterns. |
+| thresholds, `NOTIFICATION_LEVELS`, `TEMP_SENSORS`, `TEMP_GRACE_MINUTES`, `CPU_TEMP_WARN`, `CPU_TEMP_CRIT`, `DOCKER_UPDATES`, `SMART_UNKNOWN_CYCLES`, `INTERVAL_MINUTES`, `RENOTIFY_HOURS`, `OPENCODE_MODEL`, `USERSCRIPTS_GRACE_MINUTES`, `USERSCRIPTS_MAX_RUNTIME_HOURS` | optional | Overrides; see `.env.example` for defaults. |
 
 Changing a variable or secret takes effect on the next deploy: re-run the workflow
 (Actions → test-and-deploy → Run workflow).

@@ -9,7 +9,7 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv rsync sudo openssh-server ca-certificates >/dev/null
+apt-get install -y -qq python3 python3-venv rsync sudo openssh-server openssh-client ca-certificates >/dev/null
 systemctl enable --now ssh >/dev/null
 
 id unraid-agent >/dev/null 2>&1 || useradd --system --home-dir /var/lib/unraid-agent --shell /usr/sbin/nologin unraid-agent

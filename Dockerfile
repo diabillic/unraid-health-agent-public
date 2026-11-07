@@ -20,7 +20,7 @@ ARG PATCHED_AT=unknown
 RUN echo "Patching the base OS ($PATCHED_AT)" \
  && apt-get update \
  && apt-get -y full-upgrade \
- && apt-get install -y --no-install-recommends ca-certificates tzdata \
+ && apt-get install -y --no-install-recommends ca-certificates openssh-client tzdata \
  && ln -snf "/usr/share/zoneinfo/$TZ" /etc/localtime && echo "$TZ" > /etc/timezone \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 

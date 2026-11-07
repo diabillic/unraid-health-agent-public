@@ -29,6 +29,18 @@ def _list(name: str, default: str = "") -> list[str]:
     return [p.strip() for p in raw.replace("\n", ",").split(",") if p.strip()]
 
 
+def _regex(name: str) -> list[str]:
+    """One regex (agent.env holds one line per setting; join alternatives with |), checked at startup."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return []
+    try:
+        re.compile(raw)
+    except re.error as exc:
+        raise SystemExit(f"{name}: {raw!r} is not a valid regex: {exc}")
+    return [raw]
+
+
 def _windows(name: str) -> list[tuple[int, int]]:
     """"05:00-05:10,23:50-00:20" -> [(300, 310), (1430, 20)]: minutes after midnight, end exclusive."""
     out = []
@@ -40,6 +52,14 @@ def _windows(name: str) -> list[tuple[int, int]]:
         out.append((h1 * 60 + m1, h2 * 60 + m2))
     return out
 
+
+DEFAULT_USERSCRIPT_ERRORS = (
+    r"\bERROR\b",  # rclone and most loggers
+    r"(?i)\berror(:|\s+response\b)",  # "error: ...", docker's "Error response from daemon"
+    r"(?i)\b(failed to|fatal|command not found|permission denied|no such file or directory)\b",
+    r"(?i)traceback \(most recent call last\)|segmentation fault|out of memory|^\s*killed\b",
+    r"Errors:\s+[1-9]",  # rclone's summary
+)
 
 DEFAULT_SYSLOG_PATTERNS = (
     r"I/O error|Buffer I/O error|blk_update_request|critical medium error",
@@ -123,6 +143,16 @@ class Config:
     check_vms: bool = True
     vm_ignore: list[str] = field(default_factory=list)
 
+    # User Scripts plugin, read over SSH through deploy/unraid/userscripts-report.php (empty host = off)
+    userscripts_host: str = ""
+    userscripts_host_key: str = ""  # Unraid's SSH host key, e.g. "ssh-ed25519 AAAA..."
+    userscripts_key_path: str = "/var/lib/unraid-agent/userscripts_ed25519"
+    userscripts_error_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_USERSCRIPT_ERRORS))
+    userscripts_ignore_patterns: list[str] = field(default_factory=list)  # log lines that aren't errors
+    userscripts_ignore: list[str] = field(default_factory=list)  # script names never to report
+    userscripts_grace_minutes: int = 15  # how late a scheduled run may start before it counts as missed
+    userscripts_max_runtime_hours: float = 12.0
+
     # LLM diagnosis via OpenCode Go
     opencode_api_key: str = ""
     server_notes: str = ""  # free text about this server, added to the diagnosis prompt
@@ -139,6 +169,10 @@ class Config:
     # Where one-time approval codes for bus actions go: a channel the MCP client can't read
     approval_urls: list[str] = field(default_factory=list)
     approval_mode: str = "code"  # "code" (agent-enforced) or "client" (assistant asks; audited)
+
+    @property
+    def userscripts_enabled(self) -> bool:
+        return bool(self.userscripts_host and self.userscripts_host_key)
 
     @property
     def escalation_enabled(self) -> bool:
@@ -189,6 +223,14 @@ class Config:
             temp_grace_minutes=max(0, _int("TEMP_GRACE_MINUTES", 10)),
             check_vms=_bool("CHECK_VMS", True),
             vm_ignore=_list("VM_IGNORE"),
+            userscripts_host=os.environ.get("USERSCRIPTS_HOST", "").strip(),
+            userscripts_host_key=os.environ.get("USERSCRIPTS_HOST_KEY", "").strip(),
+            userscripts_key_path=os.environ.get("USERSCRIPTS_KEY_PATH", "").strip() or "/var/lib/unraid-agent/userscripts_ed25519",
+            userscripts_error_patterns=list(DEFAULT_USERSCRIPT_ERRORS) + _regex("USERSCRIPTS_EXTRA_ERRORS"),
+            userscripts_ignore_patterns=_regex("USERSCRIPTS_IGNORE_LINES"),
+            userscripts_ignore=_list("USERSCRIPTS_IGNORE"),
+            userscripts_grace_minutes=max(1, _int("USERSCRIPTS_GRACE_MINUTES", 15)),
+            userscripts_max_runtime_hours=_float("USERSCRIPTS_MAX_RUNTIME_HOURS", 12.0),
             opencode_api_key=os.environ.get("OPENCODE_API_KEY", "").strip(),
             server_notes=os.environ.get("SERVER_NOTES", "").strip(),
             opencode_model=os.environ.get("OPENCODE_MODEL", "").strip() or "glm-5.2",

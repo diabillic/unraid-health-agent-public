@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import subprocess
 import threading
 from datetime import datetime, timezone
 
@@ -20,6 +21,7 @@ from .graphql import UnraidGraphQL
 from .mcp import MCPClient, MCPError
 from .notify import Notifier
 from .state import State
+from . import userscripts
 
 log = logging.getLogger("unraid_agent")
 
@@ -95,13 +97,22 @@ def main() -> None:
     runtime = Runtime("unraid", revision=_revision())
     approvals = Approvals("unraid", cfg.approval_urls, mode=cfg.approval_mode)
     health.reset()
+    if cfg.userscripts_enabled:
+        try:  # make the SSH key now, so it can be installed on Unraid before the first check
+            userscripts.ensure_ssh(cfg.userscripts_key_path, cfg.userscripts_key_path + ".known_hosts",
+                                   cfg.userscripts_host, cfg.userscripts_host_key)
+            with open(cfg.userscripts_key_path + ".pub", encoding="utf-8") as fh:
+                log.info("User Scripts SSH key: %s", fh.read().strip())
+        except (OSError, subprocess.SubprocessError) as exc:
+            log.warning("Couldn't prepare the User Scripts SSH key: %s", exc)
     if cfg.bus_token and cfg.bus_port and not args.once:
         serve_mcp("0.0.0.0", cfg.bus_port, cfg.bus_token, bus_tools(cfg, runtime), "unraid-agent", approvals)
         health.endpoint("agent bus", f"http://127.0.0.1:{cfg.bus_port}/health")
     log.info(
-        "Starting: unraidclaw=%s pinned=%s pools=%s escalation=%s model=%s bus=%s approvals=%s/%s bot_alerts=%s interval=%smin",
+        "Starting: unraidclaw=%s pinned=%s pools=%s escalation=%s model=%s bus=%s approvals=%s/%s bot_alerts=%s user_scripts=%s interval=%smin",
         cfg.mcp_url, bool(cfg.mcp_fingerprint), cfg.pools_enabled, cfg.escalation_enabled, cfg.opencode_model,
-        bool(cfg.bus_token), approvals.enabled, approvals.mode, bool(cfg.bot_alert_url), cfg.interval_minutes,
+        bool(cfg.bus_token), approvals.enabled, approvals.mode, bool(cfg.bot_alert_url), cfg.userscripts_enabled,
+        cfg.interval_minutes,
     )
 
     while True:

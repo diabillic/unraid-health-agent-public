@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import subprocess
 from datetime import datetime, timezone
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -20,6 +21,7 @@ from .findings import Finding
 from .graphql import GraphQLError, UnraidGraphQL
 from .mcp import MCPClient, MCPError, ToolError
 from .state import State
+from . import userscripts
 
 log = logging.getLogger(__name__)
 
@@ -116,6 +118,8 @@ class Checks:
         ]
         if not self.cfg.check_vms:
             checks = [c for c in checks if c[0] != "vms"]
+        if self.cfg.userscripts_enabled:
+            checks.append(("user scripts", self.user_scripts))
         for name, check in checks:
             try:
                 findings += check()
@@ -523,3 +527,17 @@ class Checks:
                 out.append(Finding(f"plugin:{name}:{p.get('stagedVersion') or p.get('version')}",
                                    f"Plugin update available: {name} (installed {p.get('version')}).", "info", once=True))
         return out
+
+    # --- User Scripts plugin (over SSH, not unraidclaw) ---
+
+    def user_scripts(self) -> list[Finding]:
+        key = self.cfg.userscripts_key_path
+        try:
+            userscripts.ensure_ssh(key, key + ".known_hosts", self.cfg.userscripts_host, self.cfg.userscripts_host_key)
+            report = userscripts.fetch_report(self.cfg.userscripts_host, key, key + ".known_hosts")
+        except (userscripts.ReportError, OSError, subprocess.SubprocessError) as exc:
+            log.warning("User Scripts report unavailable: %s", exc)
+            self.unchecked.append(userscripts.PREFIX)
+            return [Finding("userscripts:unreachable", f"Can't read the User Scripts status from Unraid over SSH: {exc}. "
+                            "If the key isn't installed yet, run deploy/install-userscripts-access.sh.")]
+        return userscripts.check(report, self.cfg)
